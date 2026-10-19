@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>책둥지 — 영상 연동 리더 목업</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", sans-serif; }
+  .video-wrap { position: relative; padding-bottom: 56.25%; height: 0; overflow: hidden; background: #000; }
+  .video-wrap iframe { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+  .page-canvas { touch-action: none; cursor: crosshair; }
+  .toolbar-btn { min-width: 44px; min-height: 44px; display: flex; align-items: center; justify-content: center; border-radius: 12px; font-size: 20px; }
+  .toolbar-btn.active { background: #3f7c62; color: white; }
+  .annot-item { border-left: 3px solid #3f7c62; }
+  .chapter-active { background: #eef6f1; border-color: #3f7c62; }
+</style>
+</head>
+<body class="bg-gray-50 text-gray-900">
+
+<!-- 상단 바 -->
+<header class="sticky top-0 z-30 bg-white/95 backdrop-blur border-b border-gray-200">
+  <div class="max-w-5xl mx-auto px-4 py-3 flex items-center gap-3">
+    <span class="text-lg font-extrabold text-[#3f7c62]">책둥지</span>
+    <span class="text-xs bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full font-semibold">목업</span>
+    <span class="ml-auto text-xs text-gray-500">영상 연동 리더 v0.1</span>
+  </div>
+</header>
+
+<main class="max-w-5xl mx-auto pb-32">
+
+  <!-- ===== 1. 영상 영역 ===== -->
+  <section class="bg-black">
+    <div class="video-wrap">
+      <!-- 샘플 강의 영상 (YouTube 임베드) -->
+      <iframe id="ytPlayer"
+        src="https://www.youtube.com/embed/dQw4w9WgXcQ?enablejsapi=1&rel=0"
+        title="강의 영상" frameborder="0"
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+        allowfullscreen></iframe>
+    </div>
+    <!-- 영상 컨트롤 + 현재 구간 표시 -->
+    <div class="px-4 py-3 bg-gray-900 text-white">
+      <div class="flex items-center gap-3">
+        <button onclick="seekBy(-10)" class="toolbar-btn bg-gray-700 text-sm font-bold">⏪ 10초</button>
+        <button onclick="togglePlay()" id="playBtn" class="toolbar-btn bg-[#3f7c62] text-lg">⏸</button>
+        <button onclick="seekBy(10)" class="toolbar-btn bg-gray-700 text-sm font-bold">10초 ⏩</button>
+        <span id="timeLabel" class="ml-auto text-sm font-mono text-gray-300">00:00</span>
+      </div>
+      <!-- 챕터 타임라인 -->
+      <div class="mt-3 flex gap-2 overflow-x-auto pb-1" id="chapterBar">
+        <button onclick="jumpChapter(0, 0)" data-ch="0" class="chapter-active shrink-0 text-xs px-3 py-1.5 rounded-full border border-gray-600 hover:border-white">📖 1강 · p.1</button>
+        <button onclick="jumpChapter(1, 1)" data-ch="1" class="shrink-0 text-xs px-3 py-1.5 rounded-full border border-gray-600 hover:border-white">📖 2강 · p.2</button>
+        <button onclick="jumpChapter(2, 2)" data-ch="2" class="shrink-0 text-xs px-3 py-1.5 rounded-full border border-gray-600 hover:border-white">📖 3강 · p.3</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== 2. 교재 페이지 + 필기 ===== -->
+  <section class="px-4 mt-4">
+    <div class="flex items-center justify-between mb-2">
+      <h2 class="font-bold">📕 국어 기본서 <span class="text-gray-400 font-normal text-sm">· <span id="pageNum">1</span>/3 페이지</span></h2>
+      <div class="flex gap-1">
+        <button onclick="changePage(-1)" class="toolbar-btn bg-white border border-gray-200 text-lg">‹</button>
+        <button onclick="changePage(1)" class="toolbar-btn bg-white border border-gray-200 text-lg">›</button>
+      </div>
+    </div>
+
+    <!-- 페이지 + 캔버스 -->
+    <div class="relative bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden" id="pageWrap">
+      <div id="pageContent" class="p-6 min-h-[420px] select-none">
+        <!-- 페이지 내용은 JS로 렌더링 -->
+      </div>
+      <canvas id="annotCanvas" class="page-canvas absolute inset-0 w-full h-full"></canvas>
+    </div>
+
+    <!-- 필기 도구모음 (하단 고정 아님, 목업용 인라인) -->
+    <div class="mt-3 bg-white rounded-2xl border border-gray-200 p-2 flex items-center gap-1 overflow-x-auto">
+      <button class="toolbar-btn active" data-tool="pen" onclick="setTool('pen')" title="펜">✏️</button>
+      <button class="toolbar-btn" data-tool="highlighter" onclick="setTool('highlighter')" title="형광펜">🖍️</button>
+      <button class="toolbar-btn" data-tool="eraser" onclick="setTool('eraser')" title="지우개">🧽</button>
+      <div class="w-px h-8 bg-gray-200 mx-1"></div>
+      <button class="toolbar-btn text-sm" onclick="setColor('#1a1a1a')" style="color:#1a1a1a" title="검정">●</button>
+      <button class="toolbar-btn text-sm" onclick="setColor('#e11d48')" style="color:#e11d48" title="빨강">●</button>
+      <button class="toolbar-btn text-sm" onclick="setColor('#2563eb')" style="color:#2563eb" title="파랑">●</button>
+      <div class="w-px h-8 bg-gray-200 mx-1"></div>
+      <button onclick="undoStroke()" class="toolbar-btn text-lg" title="되돌리기">↩️</button>
+      <button onclick="clearPage()" class="toolbar-btn text-lg" title="이 페이지 지우기">🗑️</button>
+      <span class="ml-auto text-[11px] text-gray-400 whitespace-nowrap pr-1">필기하면<br>영상 시점 저장됨</span>
+    </div>
+  </section>
+
+  <!-- ===== 3. 내 필기 타임라인 ===== -->
+  <section class="px-4 mt-6">
+    <h2 class="font-bold mb-2">🕐 내 필기 타임라인 <span class="text-xs font-normal text-gray-400">— 누르면 영상이 그 시점으로 이동</span></h2>
+    <div id="annotList" class="space-y-2">
+      <p class="text-sm text-gray-400 py-4 text-center" id="annotEmpty">아직 필기가 없어요. 교재에 필기해 보세요!</p>
+    </div>
+  </section>
+
+  <!-- ===== 4. 목업 설명 ===== -->
+  <section class="px-4 mt-8 mb-4">
+    <div class="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-sm text-amber-900">
+      <p class="font-bold mb-1">💡 이 목업에서 확인할 것</p>
+      <ul class="list-disc pl-5 space-y-1 text-[13px]">
+        <li>영상 보면서 교재에 필기 → 필기에 <b>영상 시점</b>이 자동 기록됨</li>
+        <li>타임라인에서 필기를 누르면 영상이 해당 시점으로 점프</li>
+        <li>챕터 버튼 → 영상 구간 + 교재 페이지가 함께 이동</li>
+        <li>모바일 세로 화면 기준 레이아웃 (PC에서는 좌우 분할로 변경 예정)</li>
+      </ul>
+    </div>
+  </section>
+</main>
+
+<script>
+// ===== 상태 =====
+const PAGES = [
+  { title: "1강. 문학의 본질", body: "문학은 언어를 예술적으로 형상화한 것이다.\n\n• 운문과 산문의 차이\n• 서정 / 서사 / 극의 갈래\n\n[핵심] 문학의 3요소: 작가 — 작품 — 독자" },
+  { title: "2강. 현대시의 이해", body: "현대시는 압축된 언어로 정서를 표현한다.\n\n• 심상의 종류: 시각·청각·촉각...\n• 표현 기법: 직유 / 은유 / 의인...\n\n[핵심] 화자의 정서 파악이 우선" },
+  { title: "3강. 고전산문의 흐름", body: "고전산문은 설화에서 소설로 발전했다.\n\n• 설화 → 전기소설 → 판소리계 소설\n• 홍길동전의 의의\n\n[핵심] 시대 배경과 함께 이해하기" },
+];
+let currentPage = 0;
+let tool = 'pen';
+let color = '#1a1a1a';
+let strokes = { 0: [], 1: [], 2: [] };  // 페이지별 스트로크
+let currentStroke = null;
+let videoTime = 0;  // 목업용 가상 시점 (초)
+let playing = true;
+
+// ===== 페이지 렌더 =====
+function renderPage() {
+  const p = PAGES[currentPage];
+  document.getElementById('pageContent').innerHTML =
+    `<h3 class="text-lg font-extrabold mb-3">${p.title}</h3>` +
+    p.body.split('\n').map(l => l ? `<p class="text-[15px] leading-8 text-gray-800">${l}</p>` : `<div class="h-3"></div>`).join('');
+  document.getElementById('pageNum').textContent = currentPage + 1;
+  redraw();
+  document.querySelectorAll('#chapterBar button').forEach((b, i) =>
+    b.classList.toggle('chapter-active', i === currentPage));
+}
+function changePage(d) {
+  const n = currentPage + d;
+  if (n < 0 || n >= PAGES.length) return;
+  currentPage = n;
+  renderPage();
+}
+function jumpChapter(ch, page) {
+  currentPage = page;
+  videoTime = ch * 60;  // 목업: 챕터당 1분
+  renderPage();
+  updateTime();
+  document.querySelectorAll('#chapterBar button').forEach((b, i) =>
+    b.classList.toggle('chapter-active', i === ch));
+}
+
+// ===== 캔버스 필기 =====
+const canvas = document.getElementById('annotCanvas');
+const ctx = canvas.getContext('2d');
+function fitCanvas() {
+  const wrap = document.getElementById('pageWrap');
+  const r = wrap.getBoundingClientRect();
+  canvas.width = r.width * devicePixelRatio;
+  canvas.height = r.height * devicePixelRatio;
+  ctx.scale(devicePixelRatio, devicePixelRatio);
+  redraw();
+}
+function redraw() {
+  const wrap = document.getElementById('pageWrap');
+  const r = wrap.getBoundingClientRect();
+  ctx.clearRect(0, 0, r.width, r.height);
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  for (const s of strokes[currentPage]) drawStroke(s, r);
+  if (currentStroke) drawStroke(currentStroke, r);
+}
+function drawStroke(s, r) {
+  if (s.points.length < 2) return;
+  ctx.globalAlpha = s.tool === 'highlighter' ? 0.35 : 1;
+  ctx.strokeStyle = s.tool === 'eraser' ? '#ffffff' : s.color;
+  ctx.lineWidth = s.tool === 'highlighter' ? 14 : s.tool === 'eraser' ? 20 : 2.5;
+  ctx.beginPath();
+  ctx.moveTo(s.points[0].x * r.width, s.points[0].y * r.height);
+  for (const p of s.points) ctx.lineTo(p.x * r.width, p.y * r.height);
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+}
+function pos(e, r) {
+  const t = e.touches ? e.touches[0] : e;
+  return { x: (t.clientX - r.left) / r.width, y: (t.clientY - r.top) / r.height };
+}
+canvas.addEventListener('pointerdown', e => {
+  const r = canvas.getBoundingClientRect();
+  currentStroke = { tool, color, points: [pos(e, r)], time: Math.floor(videoTime) };
+  canvas.setPointerCapture(e.pointerId);
+});
+canvas.addEventListener('pointermove', e => {
+  if (!currentStroke) return;
+  const r = canvas.getBoundingClientRect();
+  currentStroke.points.push(pos(e, r));
+  redraw();
+});
+canvas.addEventListener('pointerup', () => {
+  if (!currentStroke) return;
+  if (currentStroke.points.length > 3) {
+    strokes[currentPage].push(currentStroke);
+    addTimelineItem(currentStroke);
+  }
+  currentStroke = null;
+  redraw();
+});
+
+function setTool(t) {
+  tool = t;
+  document.querySelectorAll('[data-tool]').forEach(b => b.classList.toggle('active', b.dataset.tool === t));
+}
+function setColor(c) { color = c; if (tool === 'eraser') setTool('pen'); }
+function undoStroke() { strokes[currentPage].pop(); renderTimeline(); redraw(); }
+function clearPage() { strokes[currentPage] = []; renderTimeline(); redraw(); }
+
+// ===== 타임라인 =====
+function fmt(s) {
+  s = Math.max(0, Math.floor(s));
+  return String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0');
+}
+function addTimelineItem(s) { renderTimeline(); }
+function renderTimeline() {
+  const list = document.getElementById('annotList');
+  const items = [];
+  Object.keys(strokes).forEach(pg => {
+    strokes[pg].forEach((s, i) => items.push({ pg: +pg, i, time: s.time }));
+  });
+  items.sort((a, b) => a.time - b.time);
+  if (!items.length) {
+    list.innerHTML = '<p class="text-sm text-gray-400 py-4 text-center">아직 필기가 없어요. 교재에 필기해 보세요!</p>';
+    return;
+  }
+  list.innerHTML = items.map(it => `
+    <button onclick="jumpToAnnot(${it.time}, ${it.pg})"
+      class="annot-item w-full text-left bg-white rounded-r-xl border border-gray-200 border-l-0 px-3 py-2.5 flex items-center gap-3 hover:bg-gray-50">
+      <span class="text-xs font-mono font-bold text-[#3f7c62] bg-[#eef6f1] px-2 py-1 rounded">${fmt(it.time)}</span>
+      <span class="text-sm">p.${it.pg + 1} 필기 ${it.i + 1}</span>
+      <span class="ml-auto text-gray-400">▶</span>
+    </button>`).join('');
+}
+function jumpToAnnot(t, pg) {
+  videoTime = t;
+  currentPage = pg;
+  renderPage();
+  updateTime();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+// ===== 영상 컨트롤 (목업용 가상) =====
+function updateTime() { document.getElementById('timeLabel').textContent = fmt(videoTime); }
+function seekBy(d) { videoTime = Math.max(0, videoTime + d); updateTime(); }
+function togglePlay() {
+  playing = !playing;
+  document.getElementById('playBtn').textContent = playing ? '⏸' : '▶';
+}
+setInterval(() => { if (playing) { videoTime++; updateTime(); } }, 1000);
+
+window.addEventListener('resize', fitCanvas);
+window.addEventListener('load', () => { renderPage(); setTimeout(fitCanvas, 100); });
+</script>
+</body>
+</html>

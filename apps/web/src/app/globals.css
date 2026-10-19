@@ -1,0 +1,19 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  /* hidden 속성은 author CSS의 display 지정보다 항상 우선 */
+  [hidden] {
+    display: none !important;
+  }
+
+  html {
+    @apply scroll-smooth;
+  }
+
+  body {
+    @apply bg-paper text-gray-900 antialiased;
+    word-break: keep-all;
+  }
+}

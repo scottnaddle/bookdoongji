@@ -1,0 +1,231 @@
+// 책둥지 백엔드 Prisma 스키마 (SQLite)
+// 현재 단계에서는 DB에 연결하지 않고 목업 데이터로 동작한다.
+// 스키마는 packages/shared의 도메인 타입과 필드 이름을 맞춘다.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────
+// 열거형
+// ─────────────────────────────────────────────
+
+/// 판매 유형: 소장 / 대여 / 무료
+enum SaleType {
+  OWN
+  RENTAL
+  FREE
+}
+
+/// 주문 상태
+enum OrderStatus {
+  PENDING // 결제 대기
+  PAID // 결제 완료
+  CANCELLED // 결제 전 취소
+  REFUNDED // 환불 완료
+}
+
+/// 기기 플랫폼
+enum DevicePlatform {
+  android
+  ios
+}
+
+/// 필기 종류 (payload.tool과 일치해야 함)
+enum AnnotationType {
+  stroke
+  highlight
+  text
+  shape
+  mask
+}
+
+// ─────────────────────────────────────────────
+// 카탈로그 (Commerce)
+// ─────────────────────────────────────────────
+
+/// 카테고리 — 최상위는 parentId가 null
+model Category {
+  id        String     @id @default(cuid())
+  name      String
+  parentId  String?
+  parent    Category?  @relation("CategoryTree", fields: [parentId], references: [id])
+  children  Category[] @relation("CategoryTree")
+  sortOrder Int        @default(0)
+  books     Book[]
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  @@index([parentId])
+}
+
+/// 도서 메타데이터
+model Book {
+  id          String   @id @default(cuid())
+  title       String
+  /// 저자 목록 (공저 포함) — SQLite는 스칼라 리스트 미지원이라 JSON 배열(string[])로 저장
+  authors     Json
+  publisher   String
+  /// ISBN-13 (하이픈 없이 숫자 13자리)
+  isbn        String   @unique
+  /// 출간일 (시각 없이 날짜만 — 애플리케이션에서 00:00 UTC로 저장)
+  publishedAt DateTime
+  description String
+  coverUrl    String
+  categoryId  String
+  category    Category @relation(fields: [categoryId], references: [id])
+  skus        Sku[]
+  entitlements     Entitlement[]
+  annotations      Annotation[]
+  readingPositions ReadingPosition[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([categoryId])
+  @@index([title])
+}
+
+/// 판매 단위 — 한 도서에 소장/대여/무료 SKU가 여러 개 붙을 수 있다
+/// 규칙(애플리케이션 레벨 검증): RENTAL이면 rentalDays 필수, FREE면 salePrice = 0, salePrice <= listPrice
+model Sku {
+  id          String    @id @default(cuid())
+  bookId      String
+  book        Book      @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  saleType    SaleType
+  /// 정가 (원)
+  listPrice   Int
+  /// 판매가 (원)
+  salePrice   Int
+  /// 대여 기간(일) — RENTAL 전용
+  rentalDays  Int?
+  /// 대여 판매 고정 만료 시각 — RENTAL 전용, 선택
+  rentalEndAt DateTime?
+  orders      Order[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([bookId])
+}
+
+// ─────────────────────────────────────────────
+// 사용자 · 주문 · 권리 (Commerce)
+// ─────────────────────────────────────────────
+
+/// 사용자 계정
+model User {
+  id               String            @id @default(cuid())
+  email            String            @unique
+  nickname         String
+  /// 로컬 회원가입용 비밀번호 해시 — 소셜 로그인 사용자는 null
+  passwordHash     String?
+  orders           Order[]
+  entitlements     Entitlement[]
+  devices          Device[]
+  annotations      Annotation[]
+  readingPositions ReadingPosition[]
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+}
+
+/// 주문 — MVP에서는 주문 1건 = SKU 1개
+model Order {
+  id             String       @id @default(cuid())
+  userId         String
+  user           User         @relation(fields: [userId], references: [id])
+  skuId          String
+  sku            Sku          @relation(fields: [skuId], references: [id])
+  status         OrderStatus  @default(PENDING)
+  /// 결제 금액 (주문 시점 판매가 스냅샷)
+  amount         Int
+  /// 중복 결제 방지용 멱등성 키 (클라이언트 생성)
+  idempotencyKey String       @unique
+  paidAt         DateTime?
+  entitlement    Entitlement?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@index([userId])
+}
+
+/// 열람 권리 — 결제 완료(또는 무료 받기) 시 발급되며, 서재는 이 테이블 기준으로 조회한다
+model Entitlement {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id])
+  bookId    String
+  book      Book      @relation(fields: [bookId], references: [id])
+  /// 권리를 발생시킨 주문 (무료 받기는 null)
+  orderId   String?   @unique
+  order     Order?    @relation(fields: [orderId], references: [id])
+  saleType  SaleType
+  startsAt  DateTime  @default(now())
+  /// 대여 만료 시각 — 소장/무료는 null
+  expiresAt DateTime?
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId, bookId])
+}
+
+// ─────────────────────────────────────────────
+// 동기화 (Sync)
+// ─────────────────────────────────────────────
+
+/// 필기 동기화 · 다운로드 라이선스 대상 기기
+model Device {
+  id         String         @id @default(cuid())
+  userId     String
+  user       User           @relation(fields: [userId], references: [id])
+  platform   DevicePlatform
+  /// 사용자가 지정한 기기 이름
+  name       String
+  /// 기기 바인딩용 공개키 (device_token 검증에 사용)
+  publicKey  String?
+  lastSeenAt DateTime       @default(now())
+  createdAt  DateTime       @default(now())
+  /// 해제 시각 — 활성 기기는 null
+  revokedAt  DateTime?
+
+  @@index([userId])
+}
+
+/// 필기 1건 — 수정 시 revision 증가, 삭제는 소프트 삭제
+model Annotation {
+  id           String         @id @default(cuid())
+  userId       String
+  user         User           @relation(fields: [userId], references: [id])
+  bookId       String
+  book         Book           @relation(fields: [bookId], references: [id])
+  /// 콘텐츠(판본) 버전
+  assetVersion String
+  /// 안정 페이지 식별자 (페이지 번호가 아님)
+  pageRef      String
+  type         AnnotationType
+  /// 도구별 좌표/색상/굵기 — 서버는 스키마 검증만 하고 해석하지 않는다
+  payload      Json
+  /// 단조 증가 리비전
+  revision     Int
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  deletedAt    DateTime?
+
+  @@index([userId, bookId, revision])
+}
+
+/// 마지막 읽은 위치 — updatedAt 기준 last-write-wins
+model ReadingPosition {
+  userId       String
+  user         User     @relation(fields: [userId], references: [id])
+  bookId       String
+  book         Book     @relation(fields: [bookId], references: [id])
+  assetVersion String
+  pageRef      String
+  updatedAt    DateTime
+
+  @@id([userId, bookId])
+}

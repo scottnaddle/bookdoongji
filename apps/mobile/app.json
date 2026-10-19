@@ -1,0 +1,22 @@
+{
+  "expo": {
+    "name": "책둥지",
+    "slug": "bookdoongji",
+    "scheme": "bookdoongji",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "backgroundColor": "#faf7f1",
+    "ios": {
+      "bundleIdentifier": "global.ubion.bookdoongji",
+      "supportsTablet": true
+    },
+    "android": {
+      "package": "global.ubion.bookdoongji"
+    },
+    "web": {
+      "bundler": "metro"
+    }
+  }
+}
